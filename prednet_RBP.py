@@ -1,4 +1,5 @@
 import numpy as np
+from pprint import pprint
 
 from keras import backend as K
 from keras import activations
@@ -85,8 +86,8 @@ class PredNet_RBP(Recurrent):
                  output_mode='error', extrap_start_time=None,
                  data_format=K.image_data_format(), **kwargs):
         print("\n------------------------------------------------------------------")
-        print("prednet_RBP_28June2019.py: '__init__()' called")
-        print("\n------------------------------------------------------------------")
+        print("prednet_RBP_28June2019.py: '__init__()' called\n")
+#        print("\n------------------------------------------------------------------")
         self.stack_sizes = stack_sizes
 #        self.Ahat_stack_sizes = Ahat_stack_sizes
 #        self.A_stack_sizes = A_stack_sizes
@@ -101,6 +102,7 @@ class PredNet_RBP(Recurrent):
         self.R_filt_sizes = R_filt_sizes
 
         self.pixel_max = pixel_max                                          # 1
+        # Below: based on "from keras import activations"
         self.error_activation = activations.get(error_activation)           # relu
         self.A_activation = activations.get(A_activation)                   # relu
         self.LSTM_activation = activations.get(LSTM_activation)             # tanh
@@ -133,6 +135,11 @@ class PredNet_RBP(Recurrent):
         super(PredNet_RBP, self).__init__(**kwargs) # boiler plate
         self.input_spec = [InputSpec(ndim=5)]   # why is this line after super?
                                                 # ndim: expected rank of the input
+        print("Dump of variables for PredNet_RBP instance.")
+        pprint(vars(self))
+#        print("\n------------------------------------------------------------------")
+        print("\nprednet_RBP_28June2019.py: '__init__()' returned")
+        print("------------------------------------------------------------------")
 
     # COMPUTE_OUTPUT_SHAPE
     #=====================
@@ -171,6 +178,7 @@ class PredNet_RBP(Recurrent):
     #==================
     def get_initial_state(self, x):
         print("\n------------------------------------------------------------------")
+        # Below: changes color to red. Works in terminal but not spyder IPython console
         print("\033[91mprednet_RBP_28June2019.py: 'get_initial_state()' called \033[00m")
         input_shape = self.input_spec[0].shape
         init_nb_row = input_shape[self.row_axis]
