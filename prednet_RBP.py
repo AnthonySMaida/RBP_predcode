@@ -86,7 +86,8 @@ class PredNet_RBP(Recurrent):
                  output_mode='error', extrap_start_time=None,
                  data_format=K.image_data_format(), **kwargs):
         print("\n------------------------------------------------------------------")
-        print("prednet_RBP_28June2019.py: '__init__()' called\n")
+        print("prednet_RBP_28June2019.py: '__init__()' called")
+        print("    Building PredNet_RBP instance\n")
 #        print("\n------------------------------------------------------------------")
         self.stack_sizes = stack_sizes
 #        self.Ahat_stack_sizes = Ahat_stack_sizes
@@ -101,11 +102,11 @@ class PredNet_RBP(Recurrent):
         assert len(R_filt_sizes) == (self.nb_layers), 'len(R_filt_sizes) must equal len(stack_sizes)'
         self.R_filt_sizes = R_filt_sizes
 
-        self.pixel_max = pixel_max                                          # 1
+        self.pixel_max = pixel_max                                          # 1.0
         # Below: based on "from keras import activations"
         self.error_activation = activations.get(error_activation)           # relu
-        self.A_activation = activations.get(A_activation)                   # relu
-        self.LSTM_activation = activations.get(LSTM_activation)             # tanh
+        self.A_activation     = activations.get(A_activation)               # relu
+        self.LSTM_activation  = activations.get(LSTM_activation)            # tanh
         self.LSTM_inner_activation = activations.get(LSTM_inner_activation) # hard_sigmoid
 
         # check if supplied output mode is legal & assign to self.output_mode
@@ -279,11 +280,11 @@ class PredNet_RBP(Recurrent):
         # Build network, layer by layer, starting from layer 0.
         # For current model, the number of layers is 2, numbered: 0, 1.
         print("\nStarting BUILD loop:")
-        print("Iterating over layers.")
+        print("Iterating over layers to build cLSTM gates and ahat.")
         for l in range(self.nb_layers): # starting w/ layer 0
             print("")
             # start by building convolution objects within cLSTM for layer l.
-            for c in ['i', 'f', 'c', 'o']: # iterate over gates within a layer. input, forget, update, output
+            for gate in ['i', 'f', 'c', 'o']: # iterate over gates within a layer. input, forget, update, output
                 # Gate codes:
                 #             i: input gate   (hardsig act)
                 #             f: forget gate  (hardsig act)
@@ -291,7 +292,7 @@ class PredNet_RBP(Recurrent):
                 #             o: output gate  (hardsig act)
                 # assign correct activation function for gate
                 #     'tanh'                                'hard_sigmoid'
-                act = self.LSTM_activation if c == 'c' else self.LSTM_inner_activation # inner_act means gate act
+                act = self.LSTM_activation if gate == 'c' else self.LSTM_inner_activation # inner_act means gate act
                 # 1. conv_layers dict is defined at beginning of this function
                 # 2. adds Conv2D objects to the appropriate gate in the dictionary
                 # 3. order of elts in key value is determined by l
@@ -302,9 +303,12 @@ class PredNet_RBP(Recurrent):
                                          padding='same', 
                                          activation=act, # LSTM_activation is 'tanh'. LSTM_inner_activation is 'hard_sigmoid'.
                                          data_format=self.data_format)
-                print("layer: ", l, "   gate: ", c, "   nb of core/out channels: ", conv2D_temp_obj.filters, 
-                      "   kernel size: ", conv2D_temp_obj.kernel_size)
-                self.conv_layers[c].append(conv2D_temp_obj)
+                print("    layer: ", l, "   gate: ", gate, "   nb of core/out channels: ", conv2D_temp_obj.filters, 
+                      "       kernel size: ", conv2D_temp_obj.kernel_size)
+                # Below: uncomment if debugging.
+#                if gate == 'i':
+#                    pprint(vars(conv2D_temp_obj))
+                self.conv_layers[gate].append(conv2D_temp_obj)
 # =============================================================================
 #                 self.conv_layers[c].append(Conv2D(self.R_stack_sizes[l], # indexed by l: (3, 48). Nb of OUTPUT chanels. 3-channels for each gate on 1st layer
 #                                                   self.R_filt_sizes[l],  # indexed by l: use 3x3 filters for each gate on 1st & 2nd layers
@@ -312,7 +316,7 @@ class PredNet_RBP(Recurrent):
 #                                                   activation=act, # LSTM_activation is 'tanh'. LSTM_inner_activation is 'hard_sigmoid'.
 #                                                   data_format=self.data_format))
 # =============================================================================
-            # endFor c
+                # endFor gate
 
             # All all gates for cLSTM for each layer have been built.
 
@@ -326,9 +330,14 @@ class PredNet_RBP(Recurrent):
                                    padding='same', 
                                    activation=act, 
                                    data_format=self.data_format)
-            print("ahat layer: ", l, "       nb of core/out channels: ", ahat_temp_obj.filters, 
-                  "   kernel size: ", ahat_temp_obj.kernel_size)
+            print("    ahat layer: ", l, "       nb of core/out channels: ", ahat_temp_obj.filters, 
+                  "       kernel size: ", ahat_temp_obj.kernel_size)
             self.conv_layers['ahat'].append(ahat_temp_obj)
+            print("Value of self.conv_layers at end of BUILD loop:")
+            print("    ", self.conv_layers)
+            print("Each entry is sorted by layer.")
+            print("BUILD loop is finished.")
+            print("Finished building cLSTM gates and ahat.\n")
 # =============================================================================
 #             self.conv_layers['ahat'].append(Conv2D(self.stack_sizes[l],
 #                                                    self.Ahat_filt_sizes[l], 
@@ -366,10 +375,11 @@ class PredNet_RBP(Recurrent):
         # For 'channels_last', input_shape should be: (batch, nt?, rows, cols, channels)
         nb_row, nb_col = (input_shape[-2], input_shape[-1]) if self.data_format == 'channels_first' else (input_shape[-3], input_shape[-2])
         # Above: nb_row == 128, nb_col == 160
-        
         # At this point, all of the computational objects for the model have been built.
         # It's now time to connect them by weights.
         
+        
+        # WEIGHTS
         # Create/initialize WEIGHTS
         # =========================
         # For each conv2D op in each layer, set up wts
@@ -378,31 +388,39 @@ class PredNet_RBP(Recurrent):
         #        Doubly nested loop creates a wt set for each trainable component in the model.
         # LOOP: 2 nestings.
         nb_channels = 0 # Added b/c was not initialized. Seems to be number of input channels.
-        print("Iterating over layers.")
-        for l in range(len(self.conv_layers[c])): # iterate over Conv2D objects under key
-            print("\nLayer: ", l)
-            for c in sorted(self.conv_layers.keys()): # returns ['a', 'ahat', 'c', 'f', 'i', 'o']. 
-                                                      # Dictionary conv_layers is defined at beginning of build() method.
-                print("\n  gate == ", c)
+        print("Iterating over layers to build wts and bias.")
+        
+        # Below: need to revise code so that iteration is in the outer loop.
+        for c in sorted(self.conv_layers.keys()): # returns ['a', 'ahat', 'c', 'f', 'i', 'o']. 
+                                                  # Dictionary conv_layers is defined at beginning of build() method.
+            print("\ngate == ", c)
+            for l in range(len(self.conv_layers[c])): # iterate over Conv2D objects under key
+                print("\n  Layer: ", l)
                 # First step: set the value of 'in_shape' for current component.
                 ds_factor = 2 ** l  # downsample factor, for l=0,1 will be 1, 2.
                 
                 if c == 'ahat':
                     nb_channels = self.R_stack_sizes[l]     # nb of input channels
-                elif c == 'a': # not used in RBP model
-                    if l == 0:
-                        nb_channels = 2*self.R_stack_sizes[0]
-                    else:
-                        nb_channels = 2*self.R_stack_sizes[l-1]
+# ============================================================================= not used in PredNet_RBP
+#                elif c == 'a': # not used in RBP model
+#                    if l == 0:
+#                        nb_channels = 2*self.R_stack_sizes[0]
+#                    else:
+#                        nb_channels = 2*self.R_stack_sizes[l-1]
+# =============================================================================
                 else: # 'c', 'f', 'i', 'o'
                     # add up all of channels in all of the inputs to the R_module for layer l.
-                    nb_channels = self.R_stack_sizes[l] + 2*self.stack_sizes[l]  # new for RBP model (2 doubles output chanels of error module)
-                    if l < self.nb_layers - 1:
+                    #             recurrent               bottom-up error
+                    nb_channels = self.R_stack_sizes[l] + 2*self.stack_sizes[l]  # new for RBP model (2 doubles output channels of error module)
+#                    if l < self.nb_layers - 1:   # adjacent error
+                    if l > 0:    
                         nb_channels += 2*self.R_stack_sizes[l] # In RBP model, adjacent input from E is 2*nb_core channels in R
+                    # Note: in RBP version, cLSTM does not receive top-down input from next higher cLSTM.
                         
                 print("    nb_inp_channels : ", nb_channels)
                 # Below: Now we have info to define in_shape, which will be input to self.conv_layers[c][l].build(in_shape).
                 #        ds_factor is used to calculate dimensions for 2x2 pooling
+                # in_shape
                 in_shape = (input_shape[0], nb_channels, nb_row // ds_factor, nb_col // ds_factor) # '//' is floor division
                 if self.data_format == 'channels_last': in_shape = (in_shape[0], in_shape[2], in_shape[3], in_shape[1])
                 print("    in_shape        : ", in_shape)
@@ -412,6 +430,7 @@ class PredNet_RBP(Recurrent):
                 # Need to make sure wt dimensions match input in step() method.
                 print("    kernel_size     : ", self.conv_layers[c][l].kernel_size)
                 print("    nb_out_channels : ", self.conv_layers[c][l].filters) # tells nb of output channels
+                # Build WEIGHTs
                 with K.name_scope('layer_' + c + '_' + str(l)): # eg 'layer_a_0'
                     self.conv_layers[c][l].build(in_shape)      # What is side-effect?
                     # Above: Conv2D() instance understands its own build() method.
@@ -464,7 +483,9 @@ class PredNet_RBP(Recurrent):
         # tm1: t - 1
         r_tm1 = states[:self.nb_layers]                    # 1st l elements of states tuple. One state per layer. LSTM output state
         c_tm1 = states[self.nb_layers:2*self.nb_layers]    # Next l elements. LSTM cell state
-        e_tm1 = states[2*self.nb_layers:3*self.nb_layers]  # Last l elements. Error
+        e_tm1 = states[2*self.nb_layers:3*self.nb_layers]  # Last l elements. Error. (Don't know how this is calculated.)
+#        # Below: temporary to get code running.
+#        e2_tm1 = states[3*self.nb_layers:4*self.nb_layers]  # Last l elements. Error. (Don't know how this is calculated.)
 
         # Test eval's to False: ignore
         if self.extrap_start_time is not None: 
@@ -473,7 +494,7 @@ class PredNet_RBP(Recurrent):
                                                              # the previous prediction will be treated as the actual
                                                              
         # initialize state variables for current time step. 'states' will be: r + c + e (list append)
-        r = []; c = []; e = []
+        r_cell_output = []; c_cell_state = []; e = []
 
         # LOOP1.
         # LOOP1. DOWNWARD UPDATE SWEEP.
@@ -483,12 +504,15 @@ class PredNet_RBP(Recurrent):
             
             # Calculating inputs for R modules.
             # NEW code for RBP model.
-            if l < self.nb_layers - 1: # not the top layer
-                upsamp_e_tm1 = self.upsample.call(e_tm1[l+1])
-                print("    Layer:", l, ". Shape of upsamp_e_tm1: ", upsamp_e_tm1)
-                inputs  = [r_tm1[l], upsamp_e_tm1]  # recurrent, horizontal
+            # inputs
+#           if l < self.nb_layers - 1: # not the top layer
+            # also replace upsample w/ pool
+            if l > 0:
+                pool_e_tm1 = self.pool.call(e_tm1[l-1]) # changed upsample to pool
+                print("    Layer:", l, ". Shape of pool_e_tm1: ", pool_e_tm1)
+                inputs  = [r_tm1[l], pool_e_tm1, e_tm1[l]]  # recurrent, horizontal
             else: 
-                inputs = [r_tm1[l]] # no upsampling for top layer. Only recurrent inputs.
+                inputs = [r_tm1[l], e_tm1[l]] # bottom layer. Only recurrent inputs.
 
             print("    Layer:", l, "   Shape of e_tm1[l]: ", e_tm1[l])
 #                 
@@ -502,7 +526,7 @@ class PredNet_RBP(Recurrent):
 #            
 #            print("    Layer: l=", l, ". Shape of A_up: ", A_up.shape)
 #==================================== END
-            inputs.append(e_tm1[l])
+#            inputs.append(e_tm1[l]) # Is redundant with above
             # end New code
             
             # The activation updates are performed by the call() method.
@@ -517,6 +541,7 @@ class PredNet_RBP(Recurrent):
             # Above: current input concatentated w/ previous output
             
             i = self.conv_layers['i'][l].call(inputs) # activations for input gate are calculated
+            print("    Finished i-gate")
             f = self.conv_layers['f'][l].call(inputs) # forget
             o = self.conv_layers['o'][l].call(inputs) # output
             # Above: the gate activations have been updated
@@ -525,27 +550,27 @@ class PredNet_RBP(Recurrent):
             _cell_state = f * c_tm1[l] + i * self.conv_layers['c'][l].call(inputs)
             
             # Below: modulate '_cell_state' by the output gate activation
-            _r = o * self.LSTM_activation(_cell_state)
-            print("    _r.shape:", _r.shape)
+            _cell_output = o * self.LSTM_activation(_cell_state)
+            print("    _cell_output.shape:", _cell_output.shape)
             
             # update c and r state lists
             # Inserting into front of list sorts entries according to layer
-            c.insert(0, _cell_state)  # Insert stack of images into list 'c' at the beginning (different than c gate)
-            r.insert(0, _r)
+            c_cell_state.insert(0, _cell_state)  # Insert stack of images into list 'c' at the beginning (different than c gate)
+            r_cell_output.insert(0, _cell_output)
             print("")
         # end of top-down sweep
         print("LOOP1 is finished. Examine states created:")
         # END LOOP1
         
-        print("    c states:")
-        for i in range(len(c)):
-            print("        ", c[i])
-        print("    c states length:", len(c))
+        print("    cell states:")
+        for i in range(len(c_cell_state)):
+            print("        ", c_cell_state[i])
+        print("    cell states length:", len(c_cell_state))
         
-        print("    r outputs:")
-        for i in range(len(r)):
-            print("        ", r[i])
-        print("    r states length:", len(r))
+        print("    r_cell outputs:")
+        for i in range(len(r_cell_output)):
+            print("        ", r_cell_output[i])
+        print("    r states length:", len(r_cell_output))
 
         # LOOP2: Update feedforward path starting from the bottom
         # UPDATE E's
@@ -554,12 +579,14 @@ class PredNet_RBP(Recurrent):
         for l in range(self.nb_layers):   # start from bottom layer
             
             # New code for RBP.
-            ahat = self.conv_layers['ahat'][l].call(r[l]) # 'ahat' is prediction
+            ahat = self.conv_layers['ahat'][l].call(r_cell_output[l]) # 'ahat' is prediction
             if l > 0:
                 # ahat = self.upsample.call(ahat)
-                a = self.pool.call(r[l-1])
+                a = self.pool.call(r_cell_output[l-1])
                 
-            if l == 0: frame_prediction = ahat
+            if l == 0: 
+                frame_prediction = ahat
+                print("    Layer 0 frame_prediction.shape: ", frame_prediction.shape)
             
             ppe = self.error_activation(ahat - a) # Positive prediction error: using ReLU (rectified)
             npe = self.error_activation(a - ahat)
@@ -573,12 +600,12 @@ class PredNet_RBP(Recurrent):
             print("    self.output_layer_num:", self.output_layer_num);
             # self.output_layer_num seems to be none when called from kitti_train.py
             if self.output_layer_num == l:
-                if self.output_layer_type == 'A':
-                    output = a
-                elif self.output_layer_type == 'Ahat':
+#                if self.output_layer_type == 'A':  # no Layer 'A' in RBP version
+#                    output = a
+                if self.output_layer_type == 'Ahat':
                     output = ahat
                 elif self.output_layer_type == 'R':
-                    output = r[l]
+                    output = r_cell_output[l]
                 elif self.output_layer_type == 'E':
                     output = e[l]
             print("    self.output_layer_type:", self.output_layer_type)
@@ -605,7 +632,7 @@ class PredNet_RBP(Recurrent):
                 else:
                     output = K.concatenate((K.batch_flatten(frame_prediction), all_error), axis=-1)
 
-        states = r + c + e # list concatentation. Each element is a stack of images.
+        states = r_cell_output + c_cell_state + e # list concatentation. Each element is a stack of images.
         if self.extrap_start_time is not None:
             states += [frame_prediction, t + 1]
         print("RETURNING from step() with values:")
