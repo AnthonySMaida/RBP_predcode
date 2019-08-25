@@ -37,10 +37,10 @@ json_file = os.path.join(WEIGHTS_DIR, 'prednet_kitti_model.json')       # where 
 #DATA_DIR='D:\datasets\kitti\data' # convert to Unix
 # .npy stands for numpy array file
 #DATA_DIR='/Users/maida/Desktop/2019_Matin_Rao_model_keras/data'
-train_file = os.path.join(DATA_DIR, 'X_train.npy')
+train_file    = os.path.join(DATA_DIR, 'X_train.npy')
 train_sources = os.path.join(DATA_DIR, 'source_train.npy')
-val_file = os.path.join(DATA_DIR, 'X_val.npy')
-val_sources = os.path.join(DATA_DIR, 'source_val.npy')
+val_file      = os.path.join(DATA_DIR, 'X_val.npy')
+val_sources   = os.path.join(DATA_DIR, 'source_val.npy')
 
 
 
@@ -66,15 +66,15 @@ n_channels, im_height, im_width = (3, 128, 160)
 input_shape = (n_channels, im_height, im_width) if K.image_data_format() == 'channels_first' else (im_height, im_width, n_channels)
 
 
-# PARAMETERS FOR 2-LAYER NETWORK
+# PARAMETERS FOR 3-LAYER NETWORK
 #===============================
-stack_sizes   = (n_channels, n_channels) # n_channels == 3 from line 64.
-R_stack_sizes = (n_channels, 3)
-A_filt_sizes  = (3, 3)     # Not used.
-Ahat_filt_sizes = (1, 1)   # length == len(stack_sizes)
-R_filt_sizes  = (3, 3)     # 3x3 filters for 2 layers
+stack_sizes   = (n_channels, 3, 3) # n_channels == 3 from line 64.
+R_stack_sizes = (n_channels, 12, 24)
+A_filt_sizes  = (1, 1)        # length == len(stack_sizes)
+Ahat_filt_sizes = (1, 1, 1)   # length == len(stack_sizes)
+R_filt_sizes  = (3, 3, 3)     # 3x3 filters for 2 layers
 # weighting for each layer in final loss; "L_0" model:  [1, 0, 0, 0], "L_all": [1, 0.1, 0.1, 0.1]
-layer_loss_weights = np.array([0.6, 0.4])  
+layer_loss_weights = np.array([0.5, 0.4, 0.2])  
 #===============================
 
 # PARAMETERS FOR 4-LAYER NETWORK
@@ -102,8 +102,9 @@ time_loss_weights[0] = 0
 print("\nkitti_train_RBP.py: Building prednet_RBP w/ the params below:")
 print("stack_sizes   == ", stack_sizes)
 print("R_stack_sizes == ", R_stack_sizes)
-print("A_filt_sizes  == ",  A_filt_sizes)
+print("A_filt_sizes  == ", A_filt_sizes)
 print("R_filt_sizes  == ", R_filt_sizes)
+# Below: build PredNet_RBP instance
 prednet_RBP = PredNet_RBP(stack_sizes,                     # (3, 3) Nb of output channels in A and Ahat for each layer
                           R_stack_sizes,                   # (3, 48) Nb of output channels in R for each layer
                           A_filt_sizes,                    # (3, 3)  Size of single A filter in Matin's 2-layer model
@@ -116,19 +117,23 @@ prednet_RBP = PredNet_RBP(stack_sizes,                     # (3, 3) Nb of output
 inputs = Input(shape=(nt,) + input_shape) # returns tensor w/ shape=(?,10,128,160,3) dtype = float32
                                           # (batch_sz, nt, height, width, input channels)
                                           
-print("\nkitty_train_RBP.py inputs: ", inputs)
+print("\nkitti_train_RBP.py inputs: ", inputs)
 print("                                   (?, bat sz, hght, wid, chans)")
 
+print("\n------------------------------------------------------------------")
+print("Starting to execute: prednet_RBP(inputs) from kitti_train_RBP.py")
+# Below: from prednet_RBP.py calls: build(), get_initial_state(), step(), step(), compute_output_shape()
 errors = prednet_RBP(inputs)  # errors will be (batch_size, nt, nb_layers)
-print("\nkitty_train_RBP.py errors: ", errors)
+print("Finished executing: prednet_RBP(inputs) from kitti_train_RBP.py")
+print("------------------------------------------------------------------")
+print("\nkitti_train_RBP.py errors: ", errors)
 errors_by_time = TimeDistributed(Dense(1, trainable=False), weights=[layer_loss_weights, np.zeros(1)], trainable=False)(errors)  
 # Above: calculate weighted error by layer
 errors_by_time = Flatten()(errors_by_time)  # will be (batch_size, nt)
-print("\nkitty_train_RBP.py errors_by_time: ", errors_by_time)
+print("\nkitti_train_RBP.py errors_by_time: ", errors_by_time)
 final_errors = Dense(1, weights=[time_loss_weights, np.zeros(1)], trainable=False)(errors_by_time)  
 # Above: weight errors by time
-print("\nkitty_train_RBP.py final_errors: ", final_errors)
-
+print("\nkitti_train_RBP.py final_errors: ", final_errors)
 # CREATE the MODEL
 model = Model(inputs=inputs, outputs=final_errors) # Using functional API.
 
