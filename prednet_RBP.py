@@ -95,7 +95,7 @@ class PredNet_RBP(Recurrent):
         self.nb_layers = len(R_stack_sizes)
         assert len(R_stack_sizes) == self.nb_layers, 'len(R_stack_sizes) must equal len(stack_sizes)'
         self.R_stack_sizes = R_stack_sizes
-        assert len(A_filt_sizes) == (self.nb_layers - 1), 'len(A_filt_sizes) must equal len(stack_sizes) - 1' # for RBP model
+        assert len(A_filt_sizes) == (self.nb_layers), 'len(A_filt_sizes) must equal len(stack_sizes) - 1' # for RBP model
         self.A_filt_sizes = A_filt_sizes
         assert len(Ahat_filt_sizes) == self.nb_layers, 'len(Ahat_filt_sizes) must equal len(stack_sizes)'
         self.Ahat_filt_sizes = Ahat_filt_sizes
@@ -319,20 +319,24 @@ class PredNet_RBP(Recurrent):
             # If 2-layer model, builds 'ahat' conv for 1st layer on first l iteration, and then 2nd layer on second iteration
             # 'relu' for lowest layer. self.A_activation happens to also be 'relu'
             act = 'relu' if l == 0 else self.A_activation
-            if l < self.nb_layers - 1:
+            # A
+            if l > 0:
                 a_temp_obj = Conv2D(self.stack_sizes[l], # nb of output channels for A
                                     self.A_filt_sizes[l], 
                                     padding='same', 
                                     activation=act, 
                                     data_format=self.data_format)
                 self.conv_layers['a'].append(a_temp_obj)
+            else:
+                self.conv_layers['a'].append(None)
+            # AHAT
             ahat_temp_obj = Conv2D(self.stack_sizes[l], # nb of output channels for Ahat
                                    self.Ahat_filt_sizes[l], 
                                    padding='same', 
                                    activation=act, 
                                    data_format=self.data_format)
             print("    ahat layer: ", l, "       nb of core/out channels: ", ahat_temp_obj.filters, 
-                  "       kernel size: ", ahat_temp_obj.kernel_size)
+                      "       kernel size: ", ahat_temp_obj.kernel_size)
             self.conv_layers['ahat'].append(ahat_temp_obj)
             print("Value of self.conv_layers at end of BUILD loop:")
             print("    ", self.conv_layers)
@@ -349,7 +353,7 @@ class PredNet_RBP(Recurrent):
         # Since the 2 layers below do not have trainable wts and the inputs can be any image dimension, 
         # they are not layer-specific and can be reused in a multi-layer architecture.
         self.upsample = UpSampling2D(data_format=self.data_format) # default factors are 2x2, accepts any input size
-        self.pool = MaxPooling2D(data_format=self.data_format)     # maxpooling, default size is 2
+        self.pool = MaxPooling2D(data_format=self.data_format, padding ='same')     # maxpooling, default size is 2
         # Above: Remember no pooling or upsampling for RBP 1st layer.
         # Finished creating the module components for the model.
 
@@ -386,8 +390,8 @@ class PredNet_RBP(Recurrent):
                 # First step: set the value of 'in_shape' for current component.
                 ds_factor = 2 ** l  # downsample factor, for l=0,1 will be 1, 2.
                 
-                if c == 'a' and l < self.nb_layers - 1:
-                    nb_channels = self.R_stack_sizes[l]     # nb of input channels
+                if c == 'a' and l > 0:
+                    nb_channels = self.R_stack_sizes[l-1]     # nb of input channels
                 elif c == 'ahat':
                     nb_channels = self.R_stack_sizes[l]     # nb of input channels
                 else: # 'c', 'f', 'i', 'o'
@@ -410,21 +414,21 @@ class PredNet_RBP(Recurrent):
                 # Second step: build the wt set for the current component.
                 # what does name scope do? (context manager when defining a Python op)
                 # Need to make sure wt dimensions match input in step() method.
-                print("    kernel_size     : ", self.conv_layers[c][l].kernel_size)
-                print("    nb_out_channels : ", self.conv_layers[c][l].filters) # tells nb of output channels
+                if self.conv_layers[c][l] != None:
+                    print("    kernel_size     : ", self.conv_layers[c][l].kernel_size)
+                    print("    nb_out_channels : ", self.conv_layers[c][l].filters) # tells nb of output channels
                 # Build WEIGHTs
-                if (c == 'a' and l < self.nb_layers - 1):
+                if self.conv_layers[c][l] != None:
                     self.conv_layers[c][l].build(in_shape)      # What is side-effect?
-                else:
-                    self.conv_layers[c][l].build(in_shape)
                     # Above: Conv2D() instance understands its own build() method.
                     # The build() method is defined for class '_Conv', direct superclass of Conv2D.
                     # This adds the weights and bias (b/c Conv2D.use_bias is True)
                     # After this, self.conv_layers[c][l].trainable_weights has wts and understands call().
-                print("    trainable wts length : ", len(self.conv_layers[c][l].trainable_weights))
-                print("    trainable wts shape  : ", self.conv_layers[c][l].trainable_weights[0])
-                print("    trainable bias shape : ", self.conv_layers[c][l].trainable_weights[1])
-                self.trainable_weights += self.conv_layers[c][l].trainable_weights
+                if self.conv_layers[c][l] != None:
+                    print("    trainable wts length : ", len(self.conv_layers[c][l].trainable_weights))
+                    print("    trainable wts shape  : ", self.conv_layers[c][l].trainable_weights[0])
+                    print("    trainable bias shape : ", self.conv_layers[c][l].trainable_weights[1])
+                    self.trainable_weights += self.conv_layers[c][l].trainable_weights
                 # Above: For some reason add the newly created trainable wts to a list.
                 #        Not used in this file.
                 # associated w/ the prednet instance.
@@ -556,8 +560,12 @@ class PredNet_RBP(Recurrent):
             ahat = self.conv_layers['ahat'][l].call(r_cell_output[l]) # 'ahat' is prediction
             
             if l > 0:
-                a_intermediate = self.pool.call(r_cell_output[l-1])
-                a = self.conv_layers['a'][l-1].call(a_intermediate)
+#                a_intermediate = self.pool.call(r_cell_output[l-1])
+#                a = self.conv_layers['a'][l-1].call(a_intermediate)
+                # Above: old
+                # Below: swapped order b/c Matin's suggestion
+                a_intermediate = self.conv_layers['a'][l].call(r_cell_output[l-1])
+                a = self.pool.call(a_intermediate)
                 print("    Layer:", l, "   a.shape: ", a.shape)
                 
             if l == 0: 
