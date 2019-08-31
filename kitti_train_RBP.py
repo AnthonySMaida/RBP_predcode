@@ -68,10 +68,10 @@ input_shape = (n_channels, im_height, im_width) if K.image_data_format() == 'cha
 
 # PARAMETERS FOR 3-LAYER NETWORK
 #===============================
-stack_sizes   = (n_channels, 3, 3) # n_channels == 3 from line 64.
+stack_sizes   = (n_channels, 3, 12) # n_channels == 3 from line 64.
 R_stack_sizes = (n_channels, 12, 24)
-A_filt_sizes  = (1, 1)        # length == len(stack_sizes)
-Ahat_filt_sizes = (1, 1, 1)   # length == len(stack_sizes)
+A_filt_sizes  = (3, 3, 3)        # length == len(stack_sizes)
+Ahat_filt_sizes = (3, 3, 3)   # length == len(stack_sizes)
 R_filt_sizes  = (3, 3, 3)     # 3x3 filters for 2 layers
 # weighting for each layer in final loss; "L_0" model:  [1, 0, 0, 0], "L_all": [1, 0.1, 0.1, 0.1]
 layer_loss_weights = np.array([0.5, 0.4, 0.2])  
@@ -155,9 +155,9 @@ print("\nkitty_train.py: model has been compiled.\n")
 # train_sources: source_train.npy
 #    batch_size:                4
 #            nt:               10
-#                                   X_train.py  source_train.py, 10
+#                                   X_train.npy  source_train.npy, 10
 train_generator = SequenceGenerator(train_file, train_sources, nt, batch_size=batch_size, shuffle=True)
-#                                   X_val.py  source_val.py, 10
+#                                   X_val.npy  source_val.npy, 10
 val_generator   = SequenceGenerator(val_file, val_sources, nt, batch_size=batch_size, N_seq=N_seq_val)
 print("\nkitty_train.py: Sequence generators completed.")
 
