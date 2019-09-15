@@ -22,6 +22,8 @@ from prednet_RBP import PredNet_RBP
 from data_utils_RBP import SequenceGenerator
 from kitti_settings import WEIGHTS_DIR, DATA_DIR, RESULTS_SAVE_DIR
 
+from skimage import measure
+
 import tensorflow as tf
 #config = tf.ConfigProto( device_count = {'GPU': 1 , 'CPU': 56} ) 
 #sess = tf.Session(config=config) 
@@ -105,19 +107,29 @@ if data_format == 'channels_first':
 # Below: X_test is 5-dimensional, e.g., (?, 10, 128, 160, 3)
 #        2nd entry is number of frames (10).
 #        "X_test[:, 1:]" removes 1st video frame.
-print("\nX_test.shape:      ", X_test.shape)
-print("X_test[:, 1:].shape: ", X_test[:, 1:].shape)  # leave out first frame
-print("X_test[:, :-1].shape:", X_test[:, :-1].shape) # leave out last frame
-print("\nX_hat.shape:       ", X_hat.shape)
-print("X_hat[:, 1:].shape:  ", X_hat[:, 1:].shape)   # leave out first frame
+print("\nX_test.shape:        ", X_test.shape)
+print("X_test[:, 1:].shape: " , X_test[:, 1:].shape)  # leave out first frame
+print("X_test[:, :-1].shape:" , X_test[:, :-1].shape) # leave out last frame
+print("\nX_hat.shape:         ", X_hat.shape)
+print("X_hat[:, 1:].shape:  " , X_hat[:, 1:].shape)   # leave out first frame
+
 # Below: compute mean SSE
 #        Using elementwise operations on 5D matrices to produce a scalar.
-mse_model = np.mean( (X_test[:, 1:] - X_hat[:, 1:])**2 )    # measures quality of model's one-step predictions
-mse_prev  = np.mean( (X_test[:, :-1] - X_test[:, 1:])**2 )  # measures quality of data's one-step predictions (baseline)
+mse_model  = np.mean( (X_test[:, 1:] - X_hat[:, 1:])**2 )    # measures quality of model's one-step predictions
+mae_model  = np.mean(np.abs(X_test[:, 1:] - X_hat[:, 1:]))
+ssim_model = measure.compare_ssim(X_test[:,1:],X_hat[:,1:], win_size=3, multichannel=True)
+mse_prev   = np.mean( (X_test[:, :-1] - X_test[:, 1:])**2 )  # measures quality of data's one-step predictions (baseline)
+mae_prev   = np.mean(np.abs(X_test[:, :-1] - X_test[:, 1:]))
+ssim_prev  = measure.compare_ssim(X_test[:, :-1], X_test[:, 1:], win_size=3, multichannel=True)
+  
 if not os.path.exists(RESULTS_SAVE_DIR): os.mkdir(RESULTS_SAVE_DIR)
 f = open(RESULTS_SAVE_DIR + 'prediction_scores.txt', 'w')
-f.write("Model MSE: %f\n" % mse_model)
-f.write("Previous Frame MSE: %f" % mse_prev)
+f.write("Model MSE : %f\n" % mse_model)
+f.write("Model MAE : %f\n" % mae_model)
+f.write("Model SSIM: %f\n" % ssim_model)
+f.write("Previous Frame MSE : %f\n" % mse_prev)
+f.write("Previous Frame MAE : %f\n" % mae_prev)
+f.write("Previous Frame SSIM: %f\n" % ssim_prev)
 f.close()
 print("\nMSE results saved on: prediction_scores.txt")
 
