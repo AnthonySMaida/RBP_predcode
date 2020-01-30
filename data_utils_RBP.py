@@ -4,6 +4,9 @@ from keras import backend as K
 from keras.preprocessing.image import Iterator
 import matplotlib.pyplot as plt
 
+# Defines one class: SequenceGenerator. a subclass of Iterator
+# ====================================
+
 # Called from kitti_train.py and kitti_evaluate.py.
 # Class SequenceGenerator is a subclass of Iterator.
 # Data generator that creates sequences for input into PredNet.

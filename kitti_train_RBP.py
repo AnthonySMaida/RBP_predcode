@@ -60,7 +60,7 @@ config.gpu_options.allow_growth = True
 session = tf.Session(config=config)
 
 # Training parameters
-nb_epoch   = 1
+nb_epoch   = 50
 batch_size = 4
 samples_per_epoch = 500
 N_seq_val  = 100  # number of sequences to use for validation
@@ -74,22 +74,22 @@ input_shape = (n_channels, im_height, im_width) if K.image_data_format() == 'cha
 #===============================
 stack_sizes   = (n_channels, 3) # n_channels == 3 from line 68.
 R_stack_sizes = (3, 12)
-A_filt_sizes  = (3, 3)        # length == len(stack_sizes)
-Ahat_filt_sizes = (3, 3)   # length == len(stack_sizes)
-R_filt_sizes  = (3, 3)     # 3x3 filters for 2 layers
+A_filt_sizes  = (3, 3)         # length == len(stack_sizes)
+Ahat_filt_sizes = (3, 3)       # length == len(stack_sizes)
+R_filt_sizes  = (3, 3)         # 3x3 filters for 2 layers
 # weighting for each layer in final loss; "L_0" model:  [1, 0, 0, 0], "L_all": [1, 0.1, 0.1, 0.1]
 layer_loss_weights = np.array([0.5, 0.5])  
 #===============================
 
 # PARAMETERS FOR 3-LAYER NETWORK
 #===============================
-#stack_sizes   = (n_channels, 3, 12) # n_channels == 3 from line 68.
-#R_stack_sizes = (3, 12, 24)
-#A_filt_sizes  = (3, 3, 3)        # length == len(stack_sizes)
-#Ahat_filt_sizes = (3, 3, 3)   # length == len(stack_sizes)
-#R_filt_sizes  = (3, 3, 3)     # 3x3 filters for 2 layers
-## weighting for each layer in final loss; "L_0" model:  [1, 0, 0, 0], "L_all": [1, 0.1, 0.1, 0.1]
-#layer_loss_weights = np.array([.33, .33, .33])  
+stack_sizes   = (n_channels, 3, 12) # n_channels == 3 from line 68.
+# R_stack_sizes = (3, 12, 24)
+# A_filt_sizes  = (3, 3, 3)        # length == len(stack_sizes)
+# Ahat_filt_sizes = (3, 3, 3)   # length == len(stack_sizes)
+# R_filt_sizes  = (3, 3, 3)     # 3x3 filters for 2 layers
+# # weighting for each layer in final loss; "L_0" model:  [1, 0, 0, 0], "L_all": [1, 0.1, 0.1, 0.1]
+# layer_loss_weights = np.array([1, 0, 0])  
 #===============================
 
 # PARAMETERS FOR 4-LAYER NETWORK
@@ -100,7 +100,7 @@ layer_loss_weights = np.array([0.5, 0.5])
 # Ahat_filt_sizes = (1, 1, 1 ,1)  # length == len(stack_sizes)
 # R_filt_sizes = (3, 3, 3, 3)     # 3x3 filters for 2 layers
 # # weighting for each layer in final loss; "L_0" model:  [1, 0, 0, 0], "L_all": [1, 0.1, 0.1, 0.1]
-# layer_loss_weights = np.array([1., 0., 0., 0.])  
+# layer_loss_weights = np.array([0.6, 0.2, 0.1, 0.1])  
 # =============================================================================
 
 
@@ -272,8 +272,8 @@ plt.legend(['Train', 'Val'], loc = 'upper right')
 plt.show()
 
 plt.figure()
-plt.plot(history.history['mean_squared_error'])
-plt.plot(history.history['val_mean_squared_error'])
+plt.plot(history.history['mse'])
+plt.plot(history.history['val_mse'])
 plt.ylim(0.0, 0.04)
 plt.title('Mean Squared Error')
 plt.ylabel('MSE')

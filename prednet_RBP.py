@@ -136,9 +136,11 @@ class PredNet_RBP(Recurrent):
         super(PredNet_RBP, self).__init__(**kwargs) # boiler plate
         self.input_spec = [InputSpec(ndim=5)]   # why is this line after super?
                                                 # ndim: expected rank of the input
-        print("Dump of variables for PredNet_RBP instance.")
-        pprint(vars(self))
+#        print("Dump of variables for PredNet_RBP instance.")
+#        pprint(vars(self))
 #        print("\n------------------------------------------------------------------")
+                                                
+        # Saves most recent output of ahat for layer 2
         print("\nprednet_RBP_28June2019.py: '__init__()' returned")
         print("------------------------------------------------------------------")
 
@@ -149,8 +151,8 @@ class PredNet_RBP(Recurrent):
     def compute_output_shape(self, input_shape):
         print("\n------------------------------------------------------------------")
         print("\033[91mprednet_RBP_28June2019.py: 'compute_output_shape()' called \033[00m")
-        print("         input_shape:", input_shape)
-        print("    self.output_mode:", self.output_mode)
+        print("         input_shape:", input_shape)       # Prints: (None, 10, 128, 160, 3)
+        print("    self.output_mode:", self.output_mode)  # Prints: error
         if self.output_mode == 'prediction':
             out_shape = input_shape[2:]
         elif self.output_mode == 'error':
@@ -174,7 +176,7 @@ class PredNet_RBP(Recurrent):
             return (input_shape[0], input_shape[1]) + out_shape # (batch_size, nt, nb_layers) == (None, 10, 2)
         else:
             return (input_shape[0],) + out_shape    # (batch_size, nb_layers) == (None, 2)
-
+    
     # GET_INITIAL_STATE
     #==================
     def get_initial_state(self, x):
@@ -234,11 +236,11 @@ class PredNet_RBP(Recurrent):
                 print("          initial_state: ", initial_state, " for l=", l)
                 initial_states += [initial_state]
 
-        if K._BACKEND == 'theano':
-            from theano import tensor as T
-            # There is a known issue in the Theano scan op when dealing with inputs whose shape is 1 along a dimension.
-            # In our case, this is a problem when training on grayscale images, and the below line fixes it.
-            initial_states = [T.unbroadcast(init_state, 0, 1) for init_state in initial_states]
+        # if K._BACKEND == 'theano':
+        #     from theano import tensor as T
+        #     # There is a known issue in the Theano scan op when dealing with inputs whose shape is 1 along a dimension.
+        #     # In our case, this is a problem when training on grayscale images, and the below line fixes it.
+        #     initial_states = [T.unbroadcast(init_state, 0, 1) for init_state in initial_states]
 
         if self.extrap_start_time is not None:
             initial_states += [K.variable(0, int if K.backend() != 'tensorflow' else 'int32')]  # the last state will correspond to the current timestep
@@ -256,7 +258,7 @@ class PredNet_RBP(Recurrent):
     def build(self, input_shape):
         print("\n------------------------------------------------------------------")
         print("prednet_RBP_28June2019.py: 'build()' called")
-        print("Input shape == ", input_shape)
+        print("Input shape == ", input_shape) # Prints: (None, 10, 128, 160, 3)
         self.input_spec = [InputSpec(shape=input_shape)] # boiler plate for build, but not sure how input_shape is determined
         # Above: input_spec is [InputSpec(shape=(None, 10, 128, 160, 3), ndim=5)]
         
@@ -379,6 +381,7 @@ class PredNet_RBP(Recurrent):
         #        Doubly nested loop creates a wt set for each trainable component in the model.
         # LOOP: 2 nestings.
         nb_channels = 0 # Added b/c was not initialized. Seems to be number of input channels.
+        print("np_channels initialized to 0. nb_channels =", nb_channels)
         print("Iterating over layers to build wts and bias.")
         
         # Below: need to revise code so that iteration is in the outer loop.
@@ -389,9 +392,11 @@ class PredNet_RBP(Recurrent):
                 print("\n  Layer: ", l)
                 # First step: set the value of 'in_shape' for current component.
                 ds_factor = 2 ** l  # downsample factor, for l=0,1 will be 1, 2.
-                
+                                
                 if c == 'a' and l > 0:
                     nb_channels = self.R_stack_sizes[l-1]     # nb of input channels
+                elif c == 'a' and l == 0:
+                    nb_channels = None
                 elif c == 'ahat':
                     nb_channels = self.R_stack_sizes[l]     # nb of input channels
                 else: # 'c', 'f', 'i', 'o'
@@ -400,8 +405,9 @@ class PredNet_RBP(Recurrent):
                     nb_channels = self.R_stack_sizes[l] + 2*self.stack_sizes[l]# Remember E vs R numbering offset
                     # Above: new for RBP model (2 doubles output channels of error module)
                     if l < self.nb_layers - 1:    
-                        nb_channels += 2*self.stack_sizes[l+1] # In RBP model, adjacent input from E is 2*nb_core channels in R
-                    # Note: in RBP version, cLSTM does not receive top-down input from next higher cLSTM.
+                        # original RBP model: nb_channels += 2*self.stack_sizes[l+1] # In RBP model, adjacent input from E is 2*nb_core channels in R
+                        nb_channels += self.R_stack_sizes[l+1]  # Top-down channel count
+                    # Note: in old RBP version, cLSTM does not receive top-down input from next higher cLSTM.
                         
                 print("    nb_inp_channels : ", nb_channels)
                 # Below: Now we have info to define in_shape, which will be input to self.conv_layers[c][l].build(in_shape).
@@ -443,6 +449,7 @@ class PredNet_RBP(Recurrent):
             self.states += [None] * 2  # [previous frame prediction, timestep]
         print("RETURNING from build()")
     # end build()
+    
 
     # STEP
     #=====
@@ -482,23 +489,39 @@ class PredNet_RBP(Recurrent):
                                                              # the previous prediction will be treated as the actual
                                                              
         # initialize state variables for current time step. 'states' will be: r + c + e (list append)
-        r_cell_output = []; c_cell_state = []; e = []
+        r_cell_outputs = []; r_cell_states = []; e = []
 
         # LOOP1.
         # LOOP1. DOWNWARD UPDATE SWEEP.
         # Update R (cLSTM) units starting from the top
         print("\nstarting Downward Sweep (LOOP1)\n")
+        cell_output = None
         for l in reversed(range(self.nb_layers)): # reversed() starts from the top layer
             
             # Calculating inputs for R modules.
             # NEW code for RBP model.
             # inputs
 #           if l < self.nb_layers - 1: # not the top layer
-            # also replace upsample w/ pool
             if l < self.nb_layers - 1:
-                upsample_e_tm1 = self.upsample.call(e_tm1[l+1]) # changed upsample to pool
-                print("    Layer:", l, ". Shape of upsample_e_tm1: ", upsample_e_tm1)
-                inputs  = [r_tm1[l], e_tm1[l], upsample_e_tm1]  # recurrent, horizontal
+                r_up = self.upsample.call(cell_output)
+                inputs  = [r_tm1[l], e_tm1[l], r_up]
+                """
+                To perform RPBcut experiment.
+                ============================
+                Temorarily delete the three lines below to do an experiment to see
+                the effect of not using E^1 error.
+                Uncomment the three lines below to restore original model.
+                """
+                #upsample_e_tm1 = self.upsample.call(e_tm1[l+1])
+                #print("    Layer:", l, ". Shape of upsample_e_tm1: ", upsample_e_tm1)
+                #inputs  = [r_tm1[l], e_tm1[l], upsample_e_tm1]  # recurrent, horizontal
+                """
+                Modification to replace E^1 error with E^0 error.
+                Purpose is to see if E^1 error has an effect.
+                This experiment only works for a 2-layer network.
+                Delete the line below to restore to the original.
+                """
+                #inputs  = [r_tm1[l], e_tm1[l], e_tm1[l]]  # recurrent, horizontal, horizontal
             else: 
                 inputs = [r_tm1[l], e_tm1[l]] # top layer. Only recurrent inputs.
 
@@ -516,6 +539,7 @@ class PredNet_RBP(Recurrent):
             print("    Inputs after concat: ", inputs)
             # Above: current input concatentated w/ previous output
             
+            # COMPUTE GATE OUTPUTS WITHIN R MODULE
             i = self.conv_layers['i'][l].call(inputs) # activations for input gate are calculated
             print("    Finished i-gate")
             f = self.conv_layers['f'][l].call(inputs) # forget
@@ -523,48 +547,50 @@ class PredNet_RBP(Recurrent):
             # Above: the gate activations have been updated
             
             # Below: compute the output of the constant error carosel (output of  + operation)
-            _cell_state = f * c_tm1[l] + i * self.conv_layers['c'][l].call(inputs)
+            cell_state = f * c_tm1[l] + i * self.conv_layers['c'][l].call(inputs)
             
-            # Below: modulate '_cell_state' by the output gate activation
-            _cell_output = o * self.LSTM_activation(_cell_state)
-            print("    _cell_output.shape:", _cell_output.shape)
+            # Below: modulate 'cell_state' by the output gate activation
+            cell_output = o * self.LSTM_activation(cell_state)
+            print("    cell_output.shape:", cell_output.shape)
             
             # update c and r state lists
             # Inserting into front of list sorts entries according to layer
-            c_cell_state.insert(0, _cell_state)  # Insert stack of images into list 'c' at the beginning (different than c gate)
-            r_cell_output.insert(0, _cell_output)
+            r_cell_states.insert(0, cell_state)  # Insert stack of images into list 'c' at the beginning (different than c gate)
+            r_cell_outputs.insert(0, cell_output)
             print("")
         # end of top-down sweep
+        # FINISHED UPDATING R MODULES
         print("LOOP1 is finished. Examine states created:")
         # END LOOP1
         
         print("    cell states:")
-        for i in range(len(c_cell_state)):
-            print("        ", c_cell_state[i])
-        print("    cell states length:", len(c_cell_state))
+        for i in range(len(r_cell_states)):
+            print("        ", r_cell_states[i])
+        print("    cell states length:", len(r_cell_states))
         
         print("    r_cell outputs:")
-        for i in range(len(r_cell_output)):
-            print("        ", r_cell_output[i])
-        print("    r states length:", len(r_cell_output))
+        for i in range(len(r_cell_outputs)):
+            print("        ", r_cell_outputs[i])
+        print("    r states length:", len(r_cell_outputs))
 
-        # LOOP2: Update feedforward path starting from the bottom
+        # LOOP2: Update FEEDFORWARD path starting from the bottom
         # UPDATE E's
         # New code: replace 'e_up' and 'e_down' w/ ppe and npe. See "Predictive Processing," Keller et al., Neuron, 2018.
         print("\nstarting Upward Sweep (LOOP2)")
         for l in range(self.nb_layers):   # start from bottom layer
             
             # New code for RBP.
-            print("    Layer:", l, "   r_cell_output[l].shape: ", r_cell_output[l])
-            print("    Layer:", l-1, "   r_cell_output[l-1].shape: ", r_cell_output[l-1])
-            ahat = self.conv_layers['ahat'][l].call(r_cell_output[l]) # 'ahat' is prediction
+            print("    Layer:", l, "   r_cell_outputs[l].shape: ", r_cell_outputs[l])
+            print("    Layer:", l-1, "   r_cell_outputs[l-1].shape: ", r_cell_outputs[l-1])
+            ahat = self.conv_layers['ahat'][l].call(r_cell_outputs[l]) # 'ahat' is prediction
             
+                        
             if l > 0:
-#                a_intermediate = self.pool.call(r_cell_output[l-1])
+#                a_intermediate = self.pool.call(r_cell_outputs[l-1])
 #                a = self.conv_layers['a'][l-1].call(a_intermediate)
                 # Above: old
                 # Below: swapped order b/c Matin's suggestion
-                a_intermediate = self.conv_layers['a'][l].call(r_cell_output[l-1])
+                a_intermediate = self.conv_layers['a'][l].call(r_cell_outputs[l-1])
                 a = self.pool.call(a_intermediate)
                 print("    Layer:", l, "   a.shape: ", a.shape)
                 
@@ -592,7 +618,7 @@ class PredNet_RBP(Recurrent):
                 elif self.output_layer_type == 'Ahat':
                     output = ahat
                 elif self.output_layer_type == 'R':
-                    output = r_cell_output[l]
+                    output = r_cell_outputs[l]
                 elif self.output_layer_type == 'E':
                     output = e[l]
             print("    self.output_layer_type:", self.output_layer_type)
@@ -619,7 +645,7 @@ class PredNet_RBP(Recurrent):
                 else:
                     output = K.concatenate((K.batch_flatten(frame_prediction), all_error), axis=-1)
 
-        states = r_cell_output + c_cell_state + e # list concatentation. Each element is a stack of images.
+        states = r_cell_outputs + r_cell_states + e # list concatentation. Each element is a stack of images.
         if self.extrap_start_time is not None:
             states += [frame_prediction, t + 1]
         print("RETURNING from step() with values:")

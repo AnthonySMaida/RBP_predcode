@@ -19,6 +19,7 @@ from keras.layers import Input, Dense, Flatten
 from keras.utils import HDF5Matrix
 
 from prednet_RBP import PredNet_RBP
+#from prednet import PredNet
 from data_utils_RBP import SequenceGenerator
 from kitti_settings import WEIGHTS_DIR, DATA_DIR, RESULTS_SAVE_DIR
 
@@ -69,7 +70,10 @@ f.close()
 # Reconstruct the trained model by loading .json file and .hdf5 file.
 #====================================================================
 print("json_model_string:", json_string)
+#trained_model = model_from_json(json_string, custom_objects = {'PredNet': PredNet}) # loads a model from a file holding a JSON string
+# The value of trained_model is an uncompiled keras model instance
 trained_model = model_from_json(json_string, custom_objects = {'PredNet_RBP': PredNet_RBP}) # loads a model from a file holding a JSON string
+#                                                                             Name of custom class
 print("\nTrained model summary below:")
 trained_model.summary()
 trained_model.load_weights(weights_file_nm)
@@ -79,6 +83,7 @@ trained_model.load_weights(weights_file_nm)
 print("\nTrained model layers: ", trained_model.layers)
 # Above printout indicates 2nd list element describes PredNet architecture.
 layer_config = trained_model.layers[1].get_config() # what does this line do?
+# Above code seems to return a dictionary
 layer_config['output_mode'] = 'prediction'
 data_format = layer_config['data_format'] if 'data_format' in layer_config else layer_config['dim_ordering']
 print("\nFinal layer_config: ", layer_config)
@@ -87,6 +92,7 @@ print("\nFinal layer_config: ", layer_config)
 #====================
 # Below: unclear how the args in this line work. Must inherit from Recurrent superclass (no documentation)
 test_prednet_RBP = PredNet_RBP(weights=trained_model.layers[1].get_weights(), **layer_config) # create new prednet instance
+#test_prednet_RBP = PredNet(weights=trained_model.layers[1].get_weights(), **layer_config) # create new prednet instance
 input_shape = list(trained_model.layers[0].batch_input_shape[1:])
 input_shape[0] = nt
 inputs = Input(shape=tuple(input_shape))
@@ -157,4 +163,4 @@ for i in plot_idx:
         if t==0: plt.ylabel('Predicted', fontsize=10)
     print("Saving: plot_"+str(i)+".png")
     plt.savefig(plot_save_dir +  'plot_' + str(i) + '.png')
-    plt.clf()
+    plt.clf() # clear the current figure
